@@ -1,0 +1,24 @@
+{
+  "name": "meshchat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tailscale notepad desktop client",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.meshchat.app",
+    "productName": "MeshChat",
+    "files": ["main.js", "index.html"],
+    "directories": { "output": "dist" },
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }]
+    }
+  }
+}

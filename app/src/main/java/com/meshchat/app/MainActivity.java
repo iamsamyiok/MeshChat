@@ -1,17 +1,15 @@
 package com.meshchat.app;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.Gravity;
-import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.ValueCallback;
@@ -20,29 +18,24 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
+    private static final String PAGE = "file:///android_asset/index.html";
     private WebView web;
     private FrameLayout root;
-    private SharedPreferences sp;
     private ValueCallback<Uri[]> fileCb;
-    private String loadedUrl = "";
     private Button reloadBtn;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
-        sp = getSharedPreferences("meshchat", MODE_PRIVATE);
         root = new FrameLayout(this);
         buildWebView();
         setContentView(root);
-        String url = sp.getString("server", "");
-        if (url.isEmpty()) promptServer(true); else load(url);
+        web.loadUrl(PAGE);
     }
 
-    /** 构建 WebView 及全部客户端(渲染进程崩溃后可整体重建) */
     private void buildWebView() {
         if (web != null) {
             try { web.destroy(); } catch (Exception ignored) {}
@@ -53,20 +46,25 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
+        s.setAllowFileAccessFromFileURLs(true);
+        s.setAllowUniversalAccessFromFileURLs(true);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        web.setBackgroundColor(Color.parseColor("#0b0e17"));
+        if (Build.VERSION.SDK_INT >= 21) {
+            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
+        web.setBackgroundColor(Color.parseColor("#f3efe6"));
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView v, String url) {
-                if (url.startsWith(base())) return false;
+                if (url == null) return true;
+                if (url.startsWith("file://") || url.startsWith("http://") || url.startsWith("https://")) return false;
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception ignored) {}
                 return true;
             }
             @Override public boolean onRenderProcessGone(WebView v, RenderProcessGoneDetail d) {
-                // 渲染进程被系统杀死(切后台回收)→ 重建并重载, 避免黑屏卡死
                 root.removeView(web);
                 try { web.destroy(); } catch (Exception ignored) {}
                 buildWebView();
-                web.loadUrl(loadedUrl);
+                web.loadUrl(PAGE);
                 Toast.makeText(MainActivity.this, "已恢复页面", Toast.LENGTH_SHORT).show();
                 return true;
             }
@@ -77,7 +75,6 @@ public class MainActivity extends Activity {
                 Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
                 i.setType("*/*");
-                i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 startActivityForResult(Intent.createChooser(i, "选择文件"), 100);
                 return true;
             }
@@ -97,12 +94,11 @@ public class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // 常驻 ⟳ 重载按钮(黑屏/白屏时点一下即恢复)
         reloadBtn = new Button(this);
         reloadBtn.setText("⟳");
         reloadBtn.setTextSize(18);
         reloadBtn.setTextColor(Color.WHITE);
-        reloadBtn.setBackgroundColor(0xCC1d4ed8);
+        reloadBtn.setBackgroundColor(0xCC2f6f5e);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 (int) (56 * getResources().getDisplayMetrics().density),
                 (int) (56 * getResources().getDisplayMetrics().density),
@@ -111,51 +107,20 @@ public class MainActivity extends Activity {
         lp.bottomMargin = (int) (90 * getResources().getDisplayMetrics().density);
         root.addView(reloadBtn, lp);
         reloadBtn.setOnClickListener(v -> {
-            if (loadedUrl.isEmpty()) promptServer(false);
-            else { Toast.makeText(this, "重新加载…", Toast.LENGTH_SHORT).show(); web.reload(); }
+            Toast.makeText(this, "重新加载…", Toast.LENGTH_SHORT).show();
+            web.loadUrl(PAGE);
         });
-    }
-
-    private String base() { return sp.getString("server", ""); }
-
-    private void load(String url) {
-        if (!url.startsWith("http")) url = "http://" + url;
-        if (!url.matches(".*:[0-9]+$")) url += ":8900";
-        sp.edit().putString("server", url).apply();
-        loadedUrl = url;
-        setTitle("MeshChat · " + url);
-        web.loadUrl(url);
     }
 
     @Override protected void onResume() {
         super.onResume();
         web.onResume();
-        // 从后台回来若是空白/黑屏(渲染被回收), 自动重载
-        if (!loadedUrl.isEmpty() && (web.getUrl() == null || web.getUrl().equals("about:blank"))) {
-            web.loadUrl(loadedUrl);
-        }
+        if (web.getUrl() == null || "about:blank".equals(web.getUrl())) web.loadUrl(PAGE);
     }
 
     @Override protected void onPause() {
         web.onPause();
         super.onPause();
-    }
-
-    private void promptServer(boolean first) {
-        AlertDialog.Builder ab = new AlertDialog.Builder(this);
-        ab.setTitle(first ? "连接到 MeshChat 设备" : "切换服务器");
-        ab.setMessage("输入对方设备的 MeshChat 地址(Tailscale IP,端口默认 8900)");
-        final EditText et = new EditText(this);
-        et.setHint("100.x.y.z 或 http://100.x.y.z:8900");
-        et.setText(sp.getString("last_input", ""));
-        ab.setView(et);
-        ab.setPositiveButton("连接", (d, w) -> {
-            sp.edit().putString("last_input", et.getText().toString()).apply();
-            load(et.getText().toString().trim());
-        });
-        ab.setNegativeButton("退出", (d, w) -> finish());
-        ab.setCancelable(false);
-        ab.show();
     }
 
     @Override protected void onActivityResult(int rq, int rc, Intent data) {

@@ -1,0 +1,9 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+desktop/node_modules/
+desktop/dist/
+notebook/data/*.md
+notebook/data/*.tmp
