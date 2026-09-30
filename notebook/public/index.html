@@ -188,13 +188,12 @@
       return u.origin;
     }
 
-    function showOverlay(force) {
+    function showOverlay() {
       document.getElementById('hostIn').value = savedHost();
       document.getElementById('portIn').value = savedPort();
       document.getElementById('passIn').value = savedPass();
       ovErr.textContent = '';
       overlay.classList.add('show');
-      document.getElementById('ovCancel').style.visibility = force ? 'hidden' : 'visible';
     }
 
     function hideOverlay() { overlay.classList.remove('show'); }
@@ -280,7 +279,7 @@
           if (ok) return api(path, opt);
         }
         connected = false;
-        showOverlay(true);
+        showOverlay();
         throw new Error(data.error || '未登录');
       }
       if (!res.ok || data.ok === false) throw new Error(data.error || '请求失败');
@@ -373,7 +372,10 @@
 
     document.getElementById('cutBtn').onclick = insertDivider;
     document.getElementById('serverBtn').onclick = () => showOverlay(false);
-    document.getElementById('ovCancel').onclick = () => { if (connected) hideOverlay(); };
+    document.getElementById('ovCancel').onclick = () => {
+      hideOverlay();
+      if (!connected) setStatus('未连接', 'err');
+    };
     document.getElementById('connForm').onsubmit = async (e) => {
       e.preventDefault();
       ovErr.textContent = '';
@@ -418,10 +420,10 @@
           return;
         }
         setStatus('未连接', 'err');
-        showOverlay(true);
+        showOverlay();
       } catch (e) {
         setStatus(e.message || '无法连接', 'err');
-        showOverlay(true);
+        showOverlay();
       }
     })();
   </script>

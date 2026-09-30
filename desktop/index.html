@@ -166,7 +166,7 @@
   <div id="overlay">
     <form id="connForm">
       <h2>连接笔记本</h2>
-      <p>填 Tailscale MagicDNS 或 100.x 地址和端口，下次自动连。</p>
+      <p>填 Tailscale MagicDNS 或 100.x 地址和端口，下次自动连；要把本机当服务器，点「作为服务器」。</p>
       <div class="row">
         <div>
           <label for="hostIn">网址</label>
@@ -182,6 +182,7 @@
       <div id="ovErr"></div>
       <div class="actions">
         <button class="primary" type="submit">连接</button>
+        <button id="ovHost" type="button" hidden>作为服务器</button>
         <button id="ovCancel" type="button">取消</button>
       </div>
     </form>
@@ -230,13 +231,12 @@
       return u.origin;
     }
 
-    function showOverlay(force) {
+    function showOverlay() {
       document.getElementById('hostIn').value = savedHost();
       document.getElementById('portIn').value = savedPort();
       document.getElementById('passIn').value = savedPass();
       ovErr.textContent = '';
       overlay.classList.add('show');
-      document.getElementById('ovCancel').style.visibility = force ? 'hidden' : 'visible';
     }
 
     function hideOverlay() { overlay.classList.remove('show'); }
@@ -322,7 +322,7 @@
           if (ok) return api(path, opt);
         }
         connected = false;
-        showOverlay(true);
+        showOverlay();
         throw new Error(data.error || '未登录');
       }
       if (!res.ok || data.ok === false) throw new Error(data.error || '请求失败');
@@ -415,7 +415,10 @@
 
     document.getElementById('cutBtn').onclick = insertDivider;
     document.getElementById('serverBtn').onclick = () => showOverlay(false);
-    document.getElementById('ovCancel').onclick = () => { if (connected) hideOverlay(); };
+    document.getElementById('ovCancel').onclick = () => {
+      hideOverlay();
+      if (!connected) setStatus('未连接', 'err');
+    };
     document.getElementById('connForm').onsubmit = async (e) => {
       e.preventDefault();
       ovErr.textContent = '';
@@ -480,6 +483,7 @@
     }
 
     async function openHostPanel() {
+      overlay.classList.remove('show');
       hostList.innerHTML = '';
       hostStatusEl.textContent = '启动中…';
       hostOverlay.classList.add('show');
@@ -488,6 +492,14 @@
         hostStatusEl.textContent = '运行中 · 端口 ' + res.port;
         res.addresses.forEach((a) => hostList.appendChild(hostRow(a.addr, res.port)));
         if (!res.addresses.length) hostStatusEl.textContent = '运行中 · 未检测到对外地址';
+        if (!connected) {
+          try {
+            await connectTo('127.0.0.1', res.port, '');
+            await loadNote();
+          } catch (e) {
+            setStatus(e.message || '本机连接失败', 'err');
+          }
+        }
       } else {
         hostStatusEl.textContent = (res && res.error) || '启动失败';
       }
@@ -496,6 +508,9 @@
     if (window.meshchat) {
       hostBtn.hidden = false;
       hostBtn.onclick = openHostPanel;
+      const ovHostBtn = document.getElementById('ovHost');
+      ovHostBtn.hidden = false;
+      ovHostBtn.onclick = openHostPanel;
       document.getElementById('hostClose').onclick = () => hostOverlay.classList.remove('show');
     }
 
@@ -512,15 +527,18 @@
           return;
         }
         if (savedHost()) {
+          if (window.meshchat && savedHost() === '127.0.0.1') {
+            try { await window.meshchat.startServer(); } catch (e) {}
+          }
           await connectTo(savedHost(), savedPort(), savedPass());
           await loadNote();
           return;
         }
         setStatus('未连接', 'err');
-        showOverlay(true);
+        showOverlay();
       } catch (e) {
         setStatus(e.message || '无法连接', 'err');
-        showOverlay(true);
+        showOverlay();
       }
     })();
   </script>
