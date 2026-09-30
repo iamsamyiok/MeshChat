@@ -38,3 +38,5 @@ npm run dist
 产物：`desktop/dist/MeshChat*.exe`。CI 同样会写回 `exe/MeshChat.exe`。
 
 首次打开同样只填网址和端口。
+
+顶栏「作为服务器」：点击后在本机启动 8765 端口服务，并显示本机地址（Tailscale `100.x` 排最前）。其他设备用该地址即可共同编辑；数据存在 `%APPDATA%/meshchat/notepad-data`。
