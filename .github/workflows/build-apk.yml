@@ -1,0 +1,20 @@
+name: build-apk
+on: [push, workflow_dispatch]
+permissions: { contents: write }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v3
+      - run: gradle assembleDebug --no-daemon
+      - name: commit apk to repo
+        run: |
+          mkdir -p apk
+          cp app/build/outputs/apk/debug/app-debug.apk apk/MeshChat.apk
+          git config user.name "iamsamyiok"
+          git config user.email "iamsamyiok@users.noreply.github.com"
+          git add apk/MeshChat.apk
+          git diff --cached --quiet || (git commit -m "build: MeshChat.apk" && git push)
