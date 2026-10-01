@@ -36,6 +36,7 @@
       padding: 10px 16px;
       border-bottom: 1px solid var(--line);
       font-family: ui-sans-serif, system-ui, sans-serif;
+      flex-wrap: wrap;
     }
     .bar b { font-weight: 600; letter-spacing: 0.04em; }
     .bar .spacer { flex: 1; }
@@ -125,6 +126,7 @@
       <b>笔记本</b>
       <button class="primary" id="cutBtn" type="button">分隔</button>
       <div class="spacer"></div>
+      <button id="exportBtn" type="button">导出</button>
       <button id="serverBtn" type="button">服务器</button>
       <div class="status" id="status">就绪</div>
     </div>
@@ -166,6 +168,10 @@
     let apiBase = '';
     let token = localStorage.getItem('np_token') || '';
     let connected = false;
+    let lastSync = null;
+    let retryTimer = null;
+    let reconnectTimer = null;
+    let polling = false;
 
     function setStatus(text, cls) {
       statusEl.className = 'status' + (cls ? ' ' + cls : '');
@@ -339,6 +345,7 @@
       const data = await api('/api/note');
       editor.innerHTML = '';
       editor.appendChild(textToHtml(data.body || ''));
+      lastSync = data.updatedAt || null;
       setStatus('已同步', 'saved');
     }
 
@@ -353,12 +360,18 @@
         });
         if (my !== seq) return;
         dirty = false;
+        lastSync = data.updatedAt || new Date().toISOString();
+        clearTimeout(retryTimer);
+        retryTimer = null;
         const t = data.updatedAt ? new Date(data.updatedAt) : new Date();
         const hh = String(t.getHours()).padStart(2, '0');
         const mm = String(t.getMinutes()).padStart(2, '0');
         setStatus('已保存 ' + hh + ':' + mm, 'saved');
       } catch (e) {
-        setStatus(e.message || '保存失败', 'err');
+        if (e.message === '未登录') return;
+        setStatus('离线 · 5 秒后重试', 'err');
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(saveNow, 5000);
       }
     }
 
@@ -370,8 +383,64 @@
       timer = setTimeout(saveNow, 400);
     }
 
+    async function checkRemote() {
+      if (!connected || dirty) return;
+      if (document.hasFocus() && document.activeElement === editor) return;
+      try {
+        const data = await api('/api/note');
+        if (data.updatedAt && data.updatedAt !== lastSync) {
+          lastSync = data.updatedAt;
+          editor.innerHTML = '';
+          editor.appendChild(textToHtml(data.body || ''));
+        }
+      } catch (e) {}
+    }
+
+    function startPolling() {
+      if (polling) return;
+      polling = true;
+      setInterval(checkRemote, 5000);
+      window.addEventListener('focus', checkRemote);
+    }
+
+    async function attemptConnection() {
+      try {
+        await connectTo(savedHost(), savedPort(), savedPass());
+        await loadNote();
+        hideOverlay();
+        startPolling();
+        return true;
+      } catch (e) {
+        setStatus(e.message || '无法连接', 'err');
+        return false;
+      }
+    }
+
+    function startReconnectLoop() {
+      if (reconnectTimer) return;
+      reconnectTimer = setInterval(async () => {
+        if (connected) {
+          clearInterval(reconnectTimer);
+          reconnectTimer = null;
+          return;
+        }
+        if (!savedHost()) return;
+        await attemptConnection();
+      }, 5000);
+    }
+
     document.getElementById('cutBtn').onclick = insertDivider;
-    document.getElementById('serverBtn').onclick = () => showOverlay(false);
+    document.getElementById('serverBtn').onclick = () => showOverlay();
+    document.getElementById('exportBtn').onclick = () => {
+      const blob = new Blob([htmlToText(editor)], { type: 'text/markdown;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'note-' + new Date().toISOString().slice(0, 10) + '.md';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    };
     document.getElementById('ovCancel').onclick = () => {
       hideOverlay();
       if (!connected) setStatus('未连接', 'err');
@@ -387,6 +456,7 @@
         await connectTo(host, port, password);
         hideOverlay();
         await loadNote();
+        startPolling();
       } catch (err) {
         ovErr.textContent = err.message || '连接失败';
         setStatus(err.message || '无法连接', 'err');
@@ -412,11 +482,16 @@
           localStorage.setItem('np_host', host);
           localStorage.setItem('np_port', port);
           await loadNote();
+          startPolling();
           return;
         }
         if (savedHost()) {
-          await connectTo(savedHost(), savedPort(), savedPass());
-          await loadNote();
+          if (window.meshchat && savedHost() === '127.0.0.1') {
+            try { await window.meshchat.startServer(); } catch (e) {}
+          }
+          if (await attemptConnection()) return;
+          showOverlay();
+          startReconnectLoop();
           return;
         }
         setStatus('未连接', 'err');

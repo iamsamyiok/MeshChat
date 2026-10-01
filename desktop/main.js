@@ -1,11 +1,19 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const os = require('os');
 const http = require('http');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 const PORT = Number(process.env.NOTEPAD_PORT || 8765);
 let serverProc = null;
+let mainWindow = null;
+
+function dataDir() {
+  const dir = path.join(app.getPath('userData'), 'notepad-data');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+  return dir;
+}
 
 function localAddresses() {
   const rows = [];
@@ -50,11 +58,10 @@ async function startServer() {
   if (serverProc || (await health())) {
     return { running: true, port: PORT, addresses: localAddresses() };
   }
-  const dataDir = path.join(app.getPath('userData'), 'notepad-data');
   serverProc = spawn(process.execPath, [serverEntry(), '--host', '0.0.0.0', '--port', String(PORT)], {
     env: Object.assign({}, process.env, {
       ELECTRON_RUN_AS_NODE: '1',
-      NOTEPAD_DATA: dataDir
+      NOTEPAD_DATA: dataDir()
     }),
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
@@ -74,6 +81,7 @@ ipcMain.handle('meshchat:server-status', async () => ({
   running: serverProc != null || (await health()),
   port: PORT
 }));
+ipcMain.handle('meshchat:open-data-folder', () => shell.openPath(dataDir()));
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -88,9 +96,23 @@ function createWindow() {
       webSecurity: false
     }
   });
+  win.on('closed', () => { mainWindow = null; });
+  mainWindow = win;
   win.loadFile(path.join(__dirname, 'index.html'));
 }
 
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { app.quit(); });
-app.on('before-quit', () => { if (serverProc) serverProc.kill(); });
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+  app.whenReady().then(createWindow);
+  app.on('window-all-closed', () => { app.quit(); });
+  app.on('before-quit', () => { if (serverProc) serverProc.kill(); });
+}
