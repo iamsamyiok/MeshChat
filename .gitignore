@@ -7,3 +7,8 @@ desktop/node_modules/
 desktop/dist/
 notebook/data/*.md
 notebook/data/*.tmp
+node_modules/
+server.log
+*.log
+desktop/server/data/
+notebook/data/
